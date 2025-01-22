@@ -1,80 +1,84 @@
 import pandas as pd
-import numpy as np
-
-# Bibliothèques pour l'apprentissage automatique
+import re
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.model_selection import train_test_split
+from rapidfuzz import fuzz, process
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+import nltk
 
-# Lecture du fichier CSV de données d'entraînement
-training_file = pd.read_csv('Training.csv')
+# Téléchargement des mots et caractères à supprimer pour pouvoir extraire les mots de la phrase
+nltk.download('stopwords')
+nltk.download('wordnet')
 
-# Groupement par maladies et extraction des colonnes de symptômes
-prognosis = training_file.groupby(training_file['prognosis']).max()
+# Chargement des données
+def load_data(file_path):
+    try:
+        data = pd.read_csv(file_path)
+        if data.isnull().values.any():
+            print("Attention : des valeurs manquantes ont été détectées. Elles seront remplies avec 0.")
+            data.fillna(0, inplace=True)
+        return data
+    except Exception as e:
+        raise FileNotFoundError(f"Erreur lors du chargement du fichier : {e}")
 
-# Extraction des colonnes de symptômes et des maladies
-symptom_list = prognosis.columns[:].to_list()  # Supposons que la dernière colonne est "prognosis"
-diseases = training_file.iloc[:, -1].to_list()
+# Préparation des données
+def prepare_data(data):
+    symptom_list = data.columns[:-1].to_list()
+    diseases = data.iloc[:, -1].tolist()
 
-print(symptom_list)
+    for col in symptom_list:
+        if not set(data[col].unique()).issubset({0, 1}):
+            data[col] = data[col].apply(lambda x: 1 if x > 0 else 0)
 
-# Création de la matrice des symptômes
-matrice_symptoms = []
-for i in range(len(diseases)):
-    matrice_symptoms.append(training_file.iloc[i, :-1].to_list())
+    X = data.iloc[:, :-1].values
+    label_encoder = LabelEncoder()
+    y = label_encoder.fit_transform(diseases)
 
-# Conversion en type entier (binaire 0/1)
-converted_matrice = [[int(value) for value in row] for row in matrice_symptoms]
-print(len(symptom_list))
-# Encodage des maladies (target) en entiers
-label_encoder = LabelEncoder()
-encoded_labels = label_encoder.fit_transform(diseases)
+    return symptom_list, X, y, label_encoder
 
-# Division des données en ensembles d'entraînement et de test
-X_train, X_test, y_train, y_test = train_test_split(
-    converted_matrice, encoded_labels, test_size=0.2, random_state=42
-)
+# Entraînement du modèle Random Forest
+def train_random_forest(X, y):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
 
-# Vérification des données d'entrée
-print("Exemples de Features (X_train):", X_train[:5])
-print("Exemples de Labels (y_train):", y_train[:5])
+    return model, X_test, y_test
 
-# Entraînement d'un modèle Random Forest
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+# Prétraitement du texte
+def preprocess_text(sentence):
+    sentence = re.sub(r'[^\w\s]', '', sentence.lower())  # Supprimer la ponctuation et mettre en minuscule
+    tokens = sentence.split()
+    tokens = [WordNetLemmatizer().lemmatize(word) for word in tokens if word not in stopwords.words('english')]
+    return tokens
 
-# Prédiction sur l'ensemble de test
-y_pred = model.predict(X_test)
+# Extraction des symptômes
+def extract_symptoms_from_sentence(sentence, symptom_list, threshold=80):
+    words = preprocess_text(sentence)
+    ngrams = [' '.join(words[i:i + n]) for n in range(1, 4) for i in range(len(words) - n + 1)]
+    identified_symptoms = set()
+    for term in ngrams:
+        best_match = process.extractOne(term, symptom_list, scorer=fuzz.ratio)
+        if best_match and best_match[1] >= threshold:
+            identified_symptoms.add(best_match[0])
+    return list(identified_symptoms)
 
-# Évaluation des performances du modèle
-accuracy = accuracy_score(y_test, y_pred)
-print("Accuracy sur l'ensemble de test:", accuracy)
-print("Rapport de classification:\n", classification_report(y_test, y_pred, target_names=label_encoder.classes_))
+# Prédiction de la maladie
+def predict_disease(model, label_encoder, symptom_list, symptoms):
+    test_symptoms = [1 if symptom in symptoms else 0 for symptom in symptom_list]
+    if not any(test_symptoms):
+        raise ValueError("Aucun symptôme valide identifié. Veuillez vérifier la saisie utilisateur.")
 
-# Exemple de prédiction avec de nouveaux symptômes
-# Génération de test_symptoms basée sur symptom_list
-example_symptoms = ["itching", "skin_rash"]  # Liste des symptômes observés (remplace par tes propres valeurs)
-test_symptoms = [1 if symptom in example_symptoms else 0 for symptom in symptom_list]
+    predicted_proba = model.predict_proba([test_symptoms])[0]
+    predicted_label = predicted_proba.argmax()
+    predicted_disease = label_encoder.inverse_transform([predicted_label])[0]
+    
+    return predicted_disease, predicted_proba
 
-# Validation de la dimension de test_symptoms avant la prédiction
-if len(test_symptoms) != len(X_train[0]):
-    raise ValueError(f"Le modèle attend {len(X_train[0])} caractéristiques, mais test_symptoms en a {len(test_symptoms)}.")
-
-# Prédiction avec les nouveaux symptômes
-predicted_label = model.predict([test_symptoms])[0]
-predicted_disease = label_encoder.inverse_transform([predicted_label])[0]
-
-# Résultats de la prédiction
-print("Symptômes fournis :", example_symptoms)
-print("Vecteur de test_symptoms :", test_symptoms)
-print("Maladie prédite :", predicted_disease)
-
-
-
-def extract_symptoms_from_sentence(sentence, symptom_list):
-    words = sentence.lower().split()  # Découpe la phrase en mots
-    symptoms = [symptom for symptom in symptom_list if any(word in symptom.lower() for word in words)]
-    return symptoms
-
-
+# Chargement des données et entraînement du modèle
+def initialize_model(file_path):
+    data = load_data(file_path)
+    symptom_list, X, y, label_encoder = prepare_data(data)
+    model, X_test, y_test = train_random_forest(X, y)
+    return model, symptom_list, label_encoder
