@@ -6,7 +6,7 @@ from main import initialize_model, extract_symptoms_from_sentence, predict_disea
 # Initialisation de l'application Flask et Flask-SocketIO
 import json
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="http://localhost:3000")  # Autoriser CORS ici directement
+socketio = SocketIO(app, cors_allowed_origins="http://localhost:3000")  
 
 # Initialisation du modèle et des ressources
 file_path = 'Training.csv'
@@ -33,12 +33,12 @@ def handle_message(msg):
 
         if extracted_symptoms:
             try:
-                predicted_disease, probabilities = predict_disease(model, label_encoder, symptom_list, extracted_symptoms)
+                predicted_disease, probabilities,  disease_probabilities = predict_disease(model, label_encoder, symptom_list, extracted_symptoms)
                 print(f"Maladie prédite : {predicted_disease}")
                 response = {
                     "disease": predicted_disease,
-                    "treatment": "Prenez des médicaments contre la grippe et reposez-vous.",
-                    "probabilities": probabilities.tolist()  # Conversion en liste pour JSON
+                    "probabilities": probabilities.tolist(),
+                    "disease_probabilities": disease_probabilities # Ajouté une probalité pour les maladies
                 }
             except ValueError as e:
                 response = {"error": str(e)}
