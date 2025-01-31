@@ -5,13 +5,13 @@ from main import initialize_model, extract_symptoms_from_sentence, predict_disea
 
 # Initialisation de l'application Flask et Flask-SocketIO
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="http://localhost:3000")  # Autoriser CORS
+socketio = SocketIO(app, cors_allowed_origins="http://localhost:3000")
 
 # Initialisation du modèle et des ressources
 file_path = 'Training.csv'
 model, symptom_list, label_encoder = initialize_model(file_path)
 severity_dict = load_severity_data("MasterData/Symptom_severity.csv")  # Charger les niveaux de gravité des symptômes
-pending_severity = {}  # Stockage temporaire des symptômes et niveaux de gravité
+pending_severity = {}
 
 # Route HTTP de base
 @app.route('/')
@@ -27,7 +27,6 @@ def handle_message(msg):
 
     try:
         if msg.startswith("pain-level:"):
-            # Mise à jour du niveau de douleur pour un symptôme
             symptom, severity = msg.replace("pain-level:", "").split(":")
             severity = int(severity)
 
@@ -55,7 +54,7 @@ def handle_message(msg):
                         "probabilities": probabilities.tolist()
                     }
                     send(response, broadcast=True)
-                    pending_severity = {}  # Réinitialiser pour la prochaine interaction
+                    pending_severity = {} 
                 except ValueError as e:
                     send({"error": str(e)}, broadcast=True)
         else:
@@ -64,7 +63,7 @@ def handle_message(msg):
             print(f"Extracted symptoms: {extracted_symptoms}")
 
             if extracted_symptoms:
-                # Initialisation des niveaux de douleur avec -1
+                # Initialisation des niveaux de douleur
                 pending_severity = {symptom: -1 for symptom in extracted_symptoms.keys()}
                 
                 # Demander le niveau de douleur pour le premier symptôme
